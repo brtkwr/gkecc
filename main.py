@@ -14,11 +14,11 @@ from google.cloud import billing_v1
 
 # ANSI color codes
 class Colors:
-    GREY = '\033[90m'
-    BLUE = '\033[94m'
-    GREEN = '\033[92m'
-    YELLOW = '\033[93m'
-    RESET = '\033[0m'
+    GREY = "\033[90m"
+    BLUE = "\033[94m"
+    GREEN = "\033[92m"
+    YELLOW = "\033[93m"
+    RESET = "\033[0m"
 
 
 def log(msg, color=Colors.GREY):
@@ -27,35 +27,38 @@ def log(msg, color=Colors.GREY):
 
 
 # ARM-based machine families
-ARM_FAMILIES = {'t2a', 'c4a'}
+ARM_FAMILIES = {"t2a", "c4a"}
 # AMD64-based machine families (all others are AMD64)
 AMD64_FAMILIES = None  # None means "not in ARM_FAMILIES"
 
 
 def get_cache_dir():
     """Get cache directory path"""
-    cache_dir = Path.home() / '.cache' / 'gkecc'
+    cache_dir = Path.home() / ".cache" / "gkecc"
     cache_dir.mkdir(parents=True, exist_ok=True)
     return cache_dir
 
 
 def load_sku_cache():
     """Load cached SKU data if it's from today"""
-    cache_file = get_cache_dir() / 'skus.json'
+    cache_file = get_cache_dir() / "skus.json"
     if cache_file.exists():
         try:
-            with open(cache_file, 'r') as f:
+            with open(cache_file, "r") as f:
                 cache_data = json.load(f)
 
                 # Check if cache is from today
-                cached_date = cache_data.get('date')
-                today = datetime.now().strftime('%Y-%m-%d')
+                cached_date = cache_data.get("date")
+                today = datetime.now().strftime("%Y-%m-%d")
 
                 if cached_date == today:
                     log(f"✓ Loaded SKU data from cache ({cached_date})", Colors.GREEN)
-                    return cache_data['skus']
+                    return cache_data["skus"]
                 else:
-                    log(f"Cache is stale (from {cached_date}), fetching fresh data", Colors.YELLOW)
+                    log(
+                        f"Cache is stale (from {cached_date}), fetching fresh data",
+                        Colors.YELLOW,
+                    )
                     return None
         except Exception as e:
             log(f"Failed to load SKU cache: {e}", Colors.YELLOW)
@@ -64,14 +67,11 @@ def load_sku_cache():
 
 def save_sku_cache(sku_data):
     """Save SKU data to cache with today's date"""
-    cache_file = get_cache_dir() / 'skus.json'
+    cache_file = get_cache_dir() / "skus.json"
     try:
-        today = datetime.now().strftime('%Y-%m-%d')
-        cache_data = {
-            'date': today,
-            'skus': sku_data
-        }
-        with open(cache_file, 'w') as f:
+        today = datetime.now().strftime("%Y-%m-%d")
+        cache_data = {"date": today, "skus": sku_data}
+        with open(cache_file, "w") as f:
             json.dump(cache_data, f, indent=2)
         log(f"✓ Saved SKU data to cache ({today})", Colors.GREEN)
     except Exception as e:
@@ -84,30 +84,30 @@ def extract_machine_family(description):
 
     # Pattern matching for different machine types
     patterns = {
-        'n2d': r'\bn2d\b',
-        'n2': r'\bn2(?!d)\b',
-        'n1': r'\bn1\b',
-        'n4': r'\bn4\b',
-        'e2': r'\be2\b',
-        'c2d': r'\bc2d\b',
-        'c2': r'\bc2(?!d)\b',
-        'c3d': r'\bc3d\b',
-        'c3': r'\bc3(?!d)\b',
-        'c4a': r'\bc4a\b',
-        'c4d': r'\bc4d\b',
-        'c4': r'\bc4(?![ad])\b',
-        't2a': r'\bt2a\b',
-        't2d': r'\bt2d\b',
-        'm1': r'\bm1\b',
-        'm2': r'\bm2\b',
-        'm3': r'\bm3\b',
-        'm4': r'\bm4\b',
-        'a2': r'\ba2\b',
-        'a3': r'\ba3\b',
-        'g1': r'\bg1\b',
-        'g2': r'\bg2\b',
-        'h3': r'\bh3\b',
-        'z3': r'\bz3\b',
+        "n2d": r"\bn2d\b",
+        "n2": r"\bn2(?!d)\b",
+        "n1": r"\bn1\b",
+        "n4": r"\bn4\b",
+        "e2": r"\be2\b",
+        "c2d": r"\bc2d\b",
+        "c2": r"\bc2(?!d)\b",
+        "c3d": r"\bc3d\b",
+        "c3": r"\bc3(?!d)\b",
+        "c4a": r"\bc4a\b",
+        "c4d": r"\bc4d\b",
+        "c4": r"\bc4(?![ad])\b",
+        "t2a": r"\bt2a\b",
+        "t2d": r"\bt2d\b",
+        "m1": r"\bm1\b",
+        "m2": r"\bm2\b",
+        "m3": r"\bm3\b",
+        "m4": r"\bm4\b",
+        "a2": r"\ba2\b",
+        "a3": r"\ba3\b",
+        "g1": r"\bg1\b",
+        "g2": r"\bg2\b",
+        "h3": r"\bh3\b",
+        "z3": r"\bz3\b",
     }
 
     for family, pattern in patterns.items():
@@ -117,7 +117,7 @@ def extract_machine_family(description):
     return None
 
 
-def parse_pricing_data(region='europe-north1', arch='amd64', use_cache=True):
+def parse_pricing_data(region="europe-north1", arch="amd64", use_cache=True):
     """Fetch and parse pricing data from Cloud Billing API"""
 
     # Try to load from cache first
@@ -136,7 +136,7 @@ def parse_pricing_data(region='europe-north1', arch='amd64', use_cache=True):
         compute_service = None
 
         for service in services:
-            if 'Compute Engine' in service.display_name:
+            if "Compute Engine" in service.display_name:
                 compute_service = service
                 log(f"Found service: {service.display_name}", Colors.GREY)
                 break
@@ -161,11 +161,13 @@ def parse_pricing_data(region='europe-north1', arch='amd64', use_cache=True):
                     break
 
             if price is not None:
-                sku_data_list.append({
-                    'description': sku.description,
-                    'regions': list(sku.service_regions),
-                    'price': price
-                })
+                sku_data_list.append(
+                    {
+                        "description": sku.description,
+                        "regions": list(sku.service_regions),
+                        "price": price,
+                    }
+                )
 
         log(f"Fetched {len(sku_data_list)} SKUs", Colors.GREY)
 
@@ -183,26 +185,26 @@ def parse_pricing_data(region='europe-north1', arch='amd64', use_cache=True):
     matched_count = 0
 
     for sku_data in sku_data_list:
-        desc = sku_data['description'].lower()
+        desc = sku_data["description"].lower()
 
         # Filter for region
-        if not any(r.lower() == region.lower() for r in sku_data['regions']):
+        if not any(r.lower() == region.lower() for r in sku_data["regions"]):
             continue
 
         # Determine if spot or on-demand
-        is_spot = 'spot' in desc or 'preemptible' in desc
+        is_spot = "spot" in desc or "preemptible" in desc
 
         # Skip if not compute instance pricing
-        if 'instance' not in desc:
+        if "instance" not in desc:
             continue
 
         # Skip custom instances
-        if 'custom' in desc:
+        if "custom" in desc:
             continue
 
         # Determine if core or RAM
-        is_core = 'core' in desc and 'running' in desc
-        is_ram = 'ram' in desc and 'running' in desc
+        is_core = "core" in desc and "running" in desc
+        is_ram = "ram" in desc and "running" in desc
 
         if not (is_core or is_ram):
             continue
@@ -214,12 +216,12 @@ def parse_pricing_data(region='europe-north1', arch='amd64', use_cache=True):
 
         # Filter by architecture
         is_arm = family in ARM_FAMILIES
-        if arch == 'amd64' and is_arm:
+        if arch == "amd64" and is_arm:
             continue
-        elif arch == 'arm' and not is_arm:
+        elif arch == "arm" and not is_arm:
             continue
 
-        price = sku_data['price']
+        price = sku_data["price"]
         matched_count += 1
 
         # Store prices by family
@@ -238,20 +240,34 @@ def parse_pricing_data(region='europe-north1', arch='amd64', use_cache=True):
     pricing = {}
 
     for family in set(list(spot_core_prices.keys()) + list(spot_ram_prices.keys())):
-        if (family in spot_core_prices and family in spot_ram_prices and
-            family in ondemand_core_prices and family in ondemand_ram_prices):
-
+        if (
+            family in spot_core_prices
+            and family in spot_ram_prices
+            and family in ondemand_core_prices
+            and family in ondemand_ram_prices
+        ):
             pricing[family] = {
-                'spot_core': sum(spot_core_prices[family]) / len(spot_core_prices[family]),
-                'spot_ram': sum(spot_ram_prices[family]) / len(spot_ram_prices[family]),
-                'ondemand_core': sum(ondemand_core_prices[family]) / len(ondemand_core_prices[family]),
-                'ondemand_ram': sum(ondemand_ram_prices[family]) / len(ondemand_ram_prices[family]),
+                "spot_core": sum(spot_core_prices[family])
+                / len(spot_core_prices[family]),
+                "spot_ram": sum(spot_ram_prices[family]) / len(spot_ram_prices[family]),
+                "ondemand_core": sum(ondemand_core_prices[family])
+                / len(ondemand_core_prices[family]),
+                "ondemand_ram": sum(ondemand_ram_prices[family])
+                / len(ondemand_ram_prices[family]),
             }
 
     return pricing
 
 
-def generate_compute_class(region='europe-north1', output_file=None, vcpus=4, ram_gb=16, max_daily_cost=None, arch='amd64', use_cache=True):
+def generate_compute_class(
+    region="europe-north1",
+    output_file=None,
+    vcpus=4,
+    ram_gb=16,
+    max_daily_cost=None,
+    arch="amd64",
+    use_cache=True,
+):
     """Generate compute class spec from API pricing"""
 
     pricing = parse_pricing_data(region, arch=arch, use_cache=use_cache)
@@ -265,42 +281,54 @@ def generate_compute_class(region='europe-north1', output_file=None, vcpus=4, ra
     # Calculate total costs and create entries for both spot and on-demand
     all_options = []
     for family, prices in pricing.items():
-        spot_total = (prices['spot_core'] * vcpus) + (prices['spot_ram'] * ram_gb)
-        ondemand_total = (prices['ondemand_core'] * vcpus) + (prices['ondemand_ram'] * ram_gb)
+        spot_total = (prices["spot_core"] * vcpus) + (prices["spot_ram"] * ram_gb)
+        ondemand_total = (prices["ondemand_core"] * vcpus) + (
+            prices["ondemand_ram"] * ram_gb
+        )
 
         # Add spot option
-        all_options.append({
-            'family': family,
-            'is_spot': True,
-            'total': spot_total,
-            'core': prices['spot_core'],
-            'ram': prices['spot_ram'],
-        })
+        all_options.append(
+            {
+                "family": family,
+                "is_spot": True,
+                "total": spot_total,
+                "core": prices["spot_core"],
+                "ram": prices["spot_ram"],
+            }
+        )
 
         # Add on-demand option
-        all_options.append({
-            'family': family,
-            'is_spot': False,
-            'total': ondemand_total,
-            'core': prices['ondemand_core'],
-            'ram': prices['ondemand_ram'],
-        })
+        all_options.append(
+            {
+                "family": family,
+                "is_spot": False,
+                "total": ondemand_total,
+                "core": prices["ondemand_core"],
+                "ram": prices["ondemand_ram"],
+            }
+        )
 
     # Sort by total cost (cheapest first)
-    all_sorted = sorted(all_options, key=lambda x: x['total'])
+    all_sorted = sorted(all_options, key=lambda x: x["total"])
 
     # Filter by max daily cost if specified
     if max_daily_cost:
-        all_sorted = [opt for opt in all_sorted if opt['total'] * 24 <= max_daily_cost]
+        all_sorted = [opt for opt in all_sorted if opt["total"] * 24 <= max_daily_cost]
         log(f"\nFiltered to options under ${max_daily_cost}/day", Colors.YELLOW)
 
-    log(f"\nAll options sorted by total cost for {vcpus} vCPU + {ram_gb}GB RAM (per day, USD):", Colors.BLUE)
+    log(
+        f"\nAll options sorted by total cost for {vcpus} vCPU + {ram_gb}GB RAM (per day, USD):",
+        Colors.BLUE,
+    )
     for opt in all_sorted:
-        spot_label = "spot" if opt['is_spot'] else "on-demand"
-        log(f"  {opt['family']:10} {spot_label:10} ${opt['total']*24:.2f}/day  (${opt['total']:.5f}/hr)", Colors.GREY)
+        spot_label = "spot" if opt["is_spot"] else "on-demand"
+        log(
+            f"  {opt['family']:10} {spot_label:10} ${opt['total']*24:.2f}/day  (${opt['total']:.5f}/hr)",
+            Colors.GREY,
+        )
 
     # Generate YAML
-    output = sys.stdout if output_file is None else open(output_file, 'w')
+    output = sys.stdout if output_file is None else open(output_file, "w")
 
     try:
         output.write("apiVersion: cloud.google.com/v1\n")
@@ -312,7 +340,7 @@ def generate_compute_class(region='europe-north1', output_file=None, vcpus=4, ra
         description = f"Cost-optimised {arch_label} for {region} (based on {vcpus}vCPU+{ram_gb}GB)"
         if max_daily_cost:
             description += f", max ${max_daily_cost}/day"
-        output.write(f"  description: \"{description}\"\n")
+        output.write(f'  description: "{description}"\n')
         output.write("  whenUnsatisfiable: ScaleUpAnyway\n")
         output.write("  nodePoolAutoCreation:\n")
         output.write("    enabled: true\n")
@@ -320,9 +348,11 @@ def generate_compute_class(region='europe-north1', output_file=None, vcpus=4, ra
 
         # Write all options sorted by total cost
         for opt in all_sorted:
-            spot_str = "true" if opt['is_spot'] else "false"
-            type_label = "spot" if opt['is_spot'] else "on-demand"
-            output.write(f"  - machineFamily: {opt['family']}  # ${opt['total']*24:.2f}/day ({type_label}, {vcpus}vCPU+{ram_gb}GB)\n")
+            spot_str = "true" if opt["is_spot"] else "false"
+            type_label = "spot" if opt["is_spot"] else "on-demand"
+            output.write(
+                f"  - machineFamily: {opt['family']}  # ${opt['total']*24:.2f}/day ({type_label}, {vcpus}vCPU+{ram_gb}GB)\n"
+            )
             output.write(f"    spot: {spot_str}\n")
     finally:
         if output_file is not None:
@@ -339,9 +369,9 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(
-        description='Generate GKE ComputeClass spec with cost-optimised machine priorities using GCP Cloud Billing API',
+        description="Generate GKE ComputeClass spec with cost-optimised machine priorities using GCP Cloud Billing API",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog='''
+        epilog="""
 Examples:
   %(prog)s europe-north1 > config.yaml                  # Output to file (uses cache)
   %(prog)s europe-north1 --refresh                      # Refresh pricing from API
@@ -356,58 +386,59 @@ Notes:
   - Requires authentication: gcloud auth application-default login
   - Use --arch to select AMD64 (default) or ARM instances
   - Interleaves spot and on-demand by total cost for optimal price/performance
-        '''
+        """,
     )
 
     parser.add_argument(
-        'region',
-        nargs='?',
-        default='europe-north1',
-        help='GCP region (default: europe-north1)'
+        "region",
+        nargs="?",
+        default="europe-north1",
+        help="GCP region (default: europe-north1)",
     )
 
     parser.add_argument(
-        '--max-cost',
+        "--max-cost",
         type=float,
         default=None,
-        metavar='DOLLARS',
-        help='Maximum daily cost in USD for a single instance (default: no limit)'
+        metavar="DOLLARS",
+        help="Maximum daily cost in USD for a single instance (default: no limit)",
     )
 
     parser.add_argument(
-        '--vcpus',
+        "--vcpus",
         type=int,
         default=4,
-        metavar='N',
-        help='Number of vCPUs for cost calculation (default: 4)'
+        metavar="N",
+        help="Number of vCPUs for cost calculation (default: 4)",
     )
 
     parser.add_argument(
-        '--ram',
+        "--ram",
         type=int,
         default=16,
-        metavar='GB',
-        help='RAM in GB for cost calculation (default: 16)'
+        metavar="GB",
+        help="RAM in GB for cost calculation (default: 16)",
     )
 
     parser.add_argument(
-        '--arch',
-        choices=['amd64', 'arm'],
-        default='amd64',
-        help='CPU architecture to include (default: amd64)'
+        "--arch",
+        choices=["amd64", "arm"],
+        default="amd64",
+        help="CPU architecture to include (default: amd64)",
     )
 
     parser.add_argument(
-        '--refresh',
-        action='store_true',
-        help='Refresh pricing cache from API (ignore cached data)'
+        "--refresh",
+        action="store_true",
+        help="Refresh pricing cache from API (ignore cached data)",
     )
 
     parser.add_argument(
-        '-o', '--output',
+        "-o",
+        "--output",
         default=None,
-        metavar='FILE',
-        help='Output YAML file (default: stdout)'
+        metavar="FILE",
+        help="Output YAML file (default: stdout)",
     )
 
     args = parser.parse_args()
@@ -420,14 +451,15 @@ Notes:
             ram_gb=args.ram,
             max_daily_cost=args.max_cost,
             arch=args.arch,
-            use_cache=not args.refresh
+            use_cache=not args.refresh,
         )
     except Exception as e:
         print(f"Error: {e}")
         import traceback
+
         traceback.print_exc()
         exit(1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
