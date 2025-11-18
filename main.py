@@ -6,7 +6,6 @@ Prioritises cheapest total cost (cores + RAM) for spot, then on-demand.
 import sys
 import re
 import json
-import hashlib
 from datetime import datetime
 from pathlib import Path
 from collections import defaultdict
@@ -145,7 +144,7 @@ def parse_pricing_data(region='europe-north1', arch='amd64', use_cache=True):
         if not compute_service:
             raise Exception("Compute Engine service not found")
 
-        log(f"Fetching all Compute Engine SKUs...", Colors.BLUE)
+        log("Fetching all Compute Engine SKUs...", Colors.BLUE)
 
         # Fetch all SKUs and convert to JSON-serializable format
         skus = client.list_skus(parent=compute_service.name)
@@ -310,9 +309,9 @@ def generate_compute_class(region='europe-north1', output_file=None, vcpus=4, ra
         output.write(f"  name: cost-optimised-{region}\n")
         output.write("spec:\n")
         arch_label = arch.upper()
-        description = f"Cost-optimised {arch_label} for {region}"
+        description = f"Cost-optimised {arch_label} for {region} (based on {vcpus}vCPU+{ram_gb}GB)"
         if max_daily_cost:
-            description += f" (max ${max_daily_cost}/day)"
+            description += f", max ${max_daily_cost}/day"
         output.write(f"  description: \"{description}\"\n")
         output.write("  whenUnsatisfiable: ScaleUpAnyway\n")
         output.write("  nodePoolAutoCreation:\n")

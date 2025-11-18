@@ -3,7 +3,7 @@ kind: ComputeClass
 metadata:
   name: cost-optimised-europe-north1
 spec:
-  description: "Cost-optimised AMD64 machines for europe-north1 prioritising cheapest total cost (based on 4vCPU+16GB), interleaving spot and on-demand"
+  description: "Cost-optimised AMD64 for europe-north1 (based on 4vCPU+16GB)"
   whenUnsatisfiable: ScaleUpAnyway
   nodePoolAutoCreation:
     enabled: true
