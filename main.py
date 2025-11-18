@@ -21,8 +21,14 @@ class Colors:
     RESET = "\033[0m"
 
 
-def log(msg, color=Colors.GREY):
+VERBOSE = False
+FORMAT = "computeclass"
+
+
+def log(msg, color=Colors.GREY, verbose_only=True):
     """Print colored message to stderr"""
+    if verbose_only and not VERBOSE:
+        return
     print(f"{color}{msg}{Colors.RESET}", file=sys.stderr)
 
 
@@ -259,26 +265,8 @@ def parse_pricing_data(region="europe-north1", arch="amd64", use_cache=True):
     return pricing
 
 
-def generate_compute_class(
-    region="europe-north1",
-    output_file=None,
-    vcpus=4,
-    ram_gb=16,
-    max_daily_cost=None,
-    arch="amd64",
-    use_cache=True,
-):
-    """Generate compute class spec from API pricing"""
-
-    pricing = parse_pricing_data(region, arch=arch, use_cache=use_cache)
-
-    if not pricing:
-        log("No pricing data found!", Colors.YELLOW)
-        return
-
-    log(f"\nFound {len(pricing)} machine families with complete pricing", Colors.GREEN)
-
-    # Calculate total costs and create entries for both spot and on-demand
+def calculate_costs(pricing, vcpus, ram_gb):
+    """Calculate total costs for all machine families"""
     all_options = []
     for family, prices in pricing.items():
         spot_total = (prices["spot_core"] * vcpus) + (prices["spot_ram"] * ram_gb)
@@ -308,52 +296,174 @@ def generate_compute_class(
             }
         )
 
+    return all_options
+
+
+def filter_by_max_cost(options, max_daily_cost):
+    """Filter options by maximum daily cost"""
+    if not max_daily_cost:
+        return options
+    return [opt for opt in options if opt["total"] * 24 <= max_daily_cost]
+
+
+def format_comparison(daily_cost, cheapest_daily):
+    """Format cost comparison string"""
+    if daily_cost == cheapest_daily:
+        return "(cheapest)"
+    multiplier = daily_cost / cheapest_daily
+    return f"({multiplier:.1f}x)"
+
+
+def generate_yaml_output(
+    region, arch, max_daily_cost, node_labels, sorted_options, vcpus, ram_gb
+):
+    """Generate YAML ComputeClass specification"""
+    lines = []
+    lines.append("apiVersion: cloud.google.com/v1\n")
+    lines.append("kind: ComputeClass\n")
+    lines.append("metadata:\n")
+    lines.append(f"  name: cost-optimised-{region}\n")
+    lines.append("spec:\n")
+    arch_label = arch.upper()
+    description = f"Cost-optimised {arch_label} for {region}"
+    if max_daily_cost:
+        description += f", max ${max_daily_cost}/day"
+    lines.append(f'  description: "{description}"\n')
+    lines.append("  whenUnsatisfiable: ScaleUpAnyway\n")
+    lines.append("  nodePoolAutoCreation:\n")
+    lines.append("    enabled: true\n")
+    if node_labels:
+        lines.append("    nodeLabels:\n")
+        for key, value in node_labels.items():
+            lines.append(f'      {key}: "{value}"\n')
+    lines.append("  priorities:\n")
+
+    cheapest_daily = sorted_options[0]["total"] * 24 if sorted_options else 0
+
+    # Write all options sorted by total cost
+    for i, opt in enumerate(sorted_options):
+        spot_str = "true" if opt["is_spot"] else "false"
+        type_label = "spot" if opt["is_spot"] else "on-demand"
+        daily_cost = opt["total"] * 24
+
+        if i == 0:
+            comment = (
+                f"${daily_cost:.2f}/day ({type_label}, {vcpus}vCPU+{ram_gb}GB, cheapest)"
+            )
+        else:
+            multiplier = daily_cost / cheapest_daily
+            comment = f"${daily_cost:.2f}/day ({type_label}, {vcpus}vCPU+{ram_gb}GB, {multiplier:.1f}x)"
+
+        lines.append(f"  - machineFamily: {opt['family']}  # {comment}\n")
+        lines.append(f"    spot: {spot_str}\n")
+
+    return "".join(lines)
+
+
+def format_table_output(sorted_options, vcpus, ram_gb):
+    """Format table output for pricing options"""
+    cheapest_daily = sorted_options[0]["total"] * 24 if sorted_options else 0
+    lines = []
+    lines.append(f"{'Family':<10} {'Type':<10} {'Daily Cost':>12} {'Comparison':>12}\n")
+    lines.append("-" * 50 + "\n")
+    for opt in sorted_options:
+        spot_label = "spot" if opt["is_spot"] else "on-demand"
+        daily_cost = opt["total"] * 24
+        comparison = format_comparison(daily_cost, cheapest_daily)
+        lines.append(
+            f"{opt['family']:<10} {spot_label:<10} ${daily_cost:>10.2f}/day  {comparison:>12}\n"
+        )
+    return "".join(lines)
+
+
+def parse_node_labels(label_list):
+    """Parse node labels from CLI arguments"""
+    node_labels = {}
+    if not label_list:
+        return node_labels
+
+    for label_group in label_list:
+        # Split by comma to support multiple labels in one arg
+        for label in label_group.split(","):
+            label = label.strip()
+            if not label:
+                continue
+            if "=" not in label:
+                raise ValueError(f"Invalid label format '{label}'. Expected KEY=VALUE")
+            key, value = label.split("=", 1)
+            node_labels[key] = value
+
+    return node_labels
+
+
+def generate_compute_class(
+    region="europe-north1",
+    output_file=None,
+    vcpus=4,
+    ram_gb=16,
+    max_daily_cost=None,
+    arch="amd64",
+    use_cache=True,
+    node_labels=None,
+):
+    """Generate compute class spec from API pricing"""
+
+    pricing = parse_pricing_data(region, arch=arch, use_cache=use_cache)
+
+    if not pricing:
+        log("No pricing data found!", Colors.YELLOW)
+        return
+
+    log(f"Found {len(pricing)} machine families with complete pricing", Colors.GREEN)
+
+    # Calculate total costs and create entries for both spot and on-demand
+    all_options = calculate_costs(pricing, vcpus, ram_gb)
+
     # Sort by total cost (cheapest first)
     all_sorted = sorted(all_options, key=lambda x: x["total"])
 
     # Filter by max daily cost if specified
+    all_sorted = filter_by_max_cost(all_sorted, max_daily_cost)
     if max_daily_cost:
-        all_sorted = [opt for opt in all_sorted if opt["total"] * 24 <= max_daily_cost]
-        log(f"\nFiltered to options under ${max_daily_cost}/day", Colors.YELLOW)
+        log(f"Filtered to options under ${max_daily_cost}/day", Colors.YELLOW)
 
+    if not all_sorted:
+        log("No options match the criteria!", Colors.YELLOW)
+        return
+
+    cheapest_daily = all_sorted[0]["total"] * 24
+
+    # Output table if format is table
+    if FORMAT == "table":
+        log(
+            f"Options sorted by total cost for {vcpus} vCPU + {ram_gb}GB RAM (per day, USD):",
+            Colors.BLUE,
+        )
+        print(format_table_output(all_sorted, vcpus, ram_gb), end="")
+        return
+
+    # Show verbose pricing info
     log(
-        f"\nAll options sorted by total cost for {vcpus} vCPU + {ram_gb}GB RAM (per day, USD):",
+        f"All options sorted by total cost for {vcpus} vCPU + {ram_gb}GB RAM (per day, USD):",
         Colors.BLUE,
     )
     for opt in all_sorted:
         spot_label = "spot" if opt["is_spot"] else "on-demand"
+        daily_cost = opt["total"] * 24
+        comparison = format_comparison(daily_cost, cheapest_daily)
         log(
-            f"  {opt['family']:10} {spot_label:10} ${opt['total']*24:.2f}/day  (${opt['total']:.5f}/hr)",
+            f"  {opt['family']:10} {spot_label:10} ${daily_cost:.2f}/day  {comparison}",
             Colors.GREY,
         )
 
     # Generate YAML
+    yaml_output = generate_yaml_output(
+        region, arch, max_daily_cost, node_labels, all_sorted, vcpus, ram_gb
+    )
+
     output = sys.stdout if output_file is None else open(output_file, "w")
-
     try:
-        output.write("apiVersion: cloud.google.com/v1\n")
-        output.write("kind: ComputeClass\n")
-        output.write("metadata:\n")
-        output.write(f"  name: cost-optimised-{region}\n")
-        output.write("spec:\n")
-        arch_label = arch.upper()
-        description = f"Cost-optimised {arch_label} for {region} (based on {vcpus}vCPU+{ram_gb}GB)"
-        if max_daily_cost:
-            description += f", max ${max_daily_cost}/day"
-        output.write(f'  description: "{description}"\n')
-        output.write("  whenUnsatisfiable: ScaleUpAnyway\n")
-        output.write("  nodePoolAutoCreation:\n")
-        output.write("    enabled: true\n")
-        output.write("  priorities:\n")
-
-        # Write all options sorted by total cost
-        for opt in all_sorted:
-            spot_str = "true" if opt["is_spot"] else "false"
-            type_label = "spot" if opt["is_spot"] else "on-demand"
-            output.write(
-                f"  - machineFamily: {opt['family']}  # ${opt['total']*24:.2f}/day ({type_label}, {vcpus}vCPU+{ram_gb}GB)\n"
-            )
-            output.write(f"    spot: {spot_str}\n")
+        output.write(yaml_output)
     finally:
         if output_file is not None:
             output.close()
@@ -434,6 +544,26 @@ Notes:
     )
 
     parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Show debug logs",
+    )
+
+    parser.add_argument(
+        "--format",
+        choices=["table", "computeclass"],
+        default="computeclass",
+        help="Output format: table or computeclass (YAML, default)",
+    )
+
+    parser.add_argument(
+        "--node-label",
+        action="append",
+        metavar="KEY=VALUE",
+        help="Node label(s) to apply. Supports comma-separated values (e.g., --node-label workload=core,env=production) or multiple flags (e.g., --node-label team=platform --node-label env=production)",
+    )
+
+    parser.add_argument(
         "-o",
         "--output",
         default=None,
@@ -443,7 +573,14 @@ Notes:
 
     args = parser.parse_args()
 
+    global VERBOSE, FORMAT
+    VERBOSE = args.verbose
+    FORMAT = args.format
+
     try:
+        # Parse node labels
+        node_labels = parse_node_labels(args.node_label)
+
         generate_compute_class(
             region=args.region,
             output_file=args.output,
@@ -452,6 +589,7 @@ Notes:
             max_daily_cost=args.max_cost,
             arch=args.arch,
             use_cache=not args.refresh,
+            node_labels=node_labels if node_labels else None,
         )
     except Exception as e:
         print(f"Error: {e}")
