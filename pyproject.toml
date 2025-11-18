@@ -1,0 +1,16 @@
+[project]
+name = "gkecc"
+version = "0.1.0"
+description = "Generate cost-optimised GKE ComputeClass specs from GCP pricing API"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "google-cloud-billing>=1.17.0",
+    "pyyaml>=6.0.3",
+]
+
+[project.scripts]
+gkecc = "main:main"
+
+[tool.uv]
+package = true
