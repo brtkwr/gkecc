@@ -1,0 +1,74 @@
+apiVersion: cloud.google.com/v1
+kind: ComputeClass
+metadata:
+  name: cost-optimised-europe-north1
+spec:
+  description: "Cost-optimised AMD64 machines for europe-north1 prioritising cheapest total cost (based on 4vCPU+16GB), interleaving spot and on-demand"
+  whenUnsatisfiable: ScaleUpAnyway
+  nodePoolAutoCreation:
+    enabled: true
+  priorities:
+  - machineFamily: t2d  # $0.46/day (spot, 4vCPU+16GB)
+    spot: true
+  - machineFamily: m3  # $0.53/day (spot, 4vCPU+16GB)
+    spot: true
+  - machineFamily: a3  # $0.65/day (spot, 4vCPU+16GB)
+    spot: true
+  - machineFamily: e2  # $0.78/day (spot, 4vCPU+16GB)
+    spot: true
+  - machineFamily: n2d  # $0.83/day (spot, 4vCPU+16GB)
+    spot: true
+  - machineFamily: c2d  # $0.99/day (spot, 4vCPU+16GB)
+    spot: true
+  - machineFamily: g2  # $0.99/day (spot, 4vCPU+16GB)
+    spot: true
+  - machineFamily: c3  # $1.13/day (spot, 4vCPU+16GB)
+    spot: true
+  - machineFamily: a2  # $1.19/day (spot, 4vCPU+16GB)
+    spot: true
+  - machineFamily: m4  # $1.43/day (spot, 4vCPU+16GB)
+    spot: true
+  - machineFamily: c3d  # $1.73/day (spot, 4vCPU+16GB)
+    spot: true
+  - machineFamily: n2  # $1.73/day (spot, 4vCPU+16GB)
+    spot: true
+  - machineFamily: c4  # $2.03/day (spot, 4vCPU+16GB)
+    spot: true
+  - machineFamily: n1  # $2.03/day (spot, 4vCPU+16GB)
+    spot: true
+  - machineFamily: h3  # $2.48/day (spot, 4vCPU+16GB)
+    spot: true
+  - machineFamily: n2d  # $2.62/day (on-demand, 4vCPU+16GB)
+    spot: false
+  - machineFamily: g2  # $2.72/day (on-demand, 4vCPU+16GB)
+    spot: false
+  - machineFamily: z3  # $2.74/day (spot, 4vCPU+16GB)
+    spot: true
+  - machineFamily: m4  # $2.95/day (on-demand, 4vCPU+16GB)
+    spot: false
+  - machineFamily: n2  # $3.02/day (on-demand, 4vCPU+16GB)
+    spot: false
+  - machineFamily: c3d  # $3.36/day (on-demand, 4vCPU+16GB)
+    spot: false
+  - machineFamily: e2  # $3.54/day (on-demand, 4vCPU+16GB)
+    spot: false
+  - machineFamily: a3  # $3.63/day (on-demand, 4vCPU+16GB)
+    spot: false
+  - machineFamily: c3  # $3.73/day (on-demand, 4vCPU+16GB)
+    spot: false
+  - machineFamily: c4  # $3.73/day (on-demand, 4vCPU+16GB)
+    spot: false
+  - machineFamily: m3  # $4.08/day (on-demand, 4vCPU+16GB)
+    spot: false
+  - machineFamily: h3  # $4.14/day (on-demand, 4vCPU+16GB)
+    spot: false
+  - machineFamily: t2d  # $4.47/day (on-demand, 4vCPU+16GB)
+    spot: false
+  - machineFamily: c2d  # $4.80/day (on-demand, 4vCPU+16GB)
+    spot: false
+  - machineFamily: n1  # $5.13/day (on-demand, 4vCPU+16GB)
+    spot: false
+  - machineFamily: a2  # $5.13/day (on-demand, 4vCPU+16GB)
+    spot: false
+  - machineFamily: z3  # $8.06/day (on-demand, 4vCPU+16GB)
+    spot: false
