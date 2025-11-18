@@ -310,9 +310,9 @@ def generate_compute_class(region='europe-north1', output_file=None, vcpus=4, ra
         output.write(f"  name: cost-optimised-{region}\n")
         output.write("spec:\n")
         arch_label = arch.upper()
-        description = f"Cost-optimised {arch_label} machines for {region} prioritising cheapest total cost (based on {vcpus}vCPU+{ram_gb}GB), interleaving spot and on-demand"
+        description = f"Cost-optimised {arch_label} for {region}"
         if max_daily_cost:
-            description += f", max ${max_daily_cost}/day"
+            description += f" (max ${max_daily_cost}/day)"
         output.write(f"  description: \"{description}\"\n")
         output.write("  whenUnsatisfiable: ScaleUpAnyway\n")
         output.write("  nodePoolAutoCreation:\n")
