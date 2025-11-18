@@ -1,5 +1,7 @@
 # gkecc
 
+[![Tests](https://github.com/brtkwr/gkecc/actions/workflows/test.yml/badge.svg)](https://github.com/brtkwr/gkecc/actions/workflows/test.yml)
+
 Generate cost-optimised GKE ComputeClass specs from live GCP pricing data.
 
 ## What it does
@@ -25,7 +27,7 @@ uv sync
 uv run gkecc --help
 
 # Or install globally
-uv tool install gkecc
+uv tool install .
 ```
 
 ## Prerequisites
@@ -61,6 +63,10 @@ gkecc europe-north1 --arch arm --max-cost 3
 # Custom instance size (8 vCPU + 32GB RAM)
 gkecc us-central1 --max-cost 10 --vcpus 8 --ram 32
 
+# Add node labels (comma-separated or multiple flags)
+gkecc europe-north1 --node-label workload=core,env=production
+gkecc europe-north1 --node-label workload=core --node-label env=production
+
 # Suppress logs and apply directly
 gkecc europe-north1 2>/dev/null | kubectl apply -f -
 ```
@@ -76,12 +82,14 @@ gkecc europe-north1 2>/dev/null | kubectl apply -f -
 ### Why total cost matters
 
 Many tools only consider core pricing, but that's misleading:
-- **m4** (memory-optimised): cheap cores ($0.00746/core/hr) but expensive RAM ($0.00186/GB/hr)
-- **t2d** (general-purpose): slightly more per core ($0.00313/core/hr) but cheap RAM ($0.00042/GB/hr)
+- **e2** (cost-optimised): $0.00527/core/hr, $0.00071/GB/hr
+- **c2d** (compute-optimised): $0.00670/core/hr, $0.00090/GB/hr
 
-For a 4 vCPU + 16GB instance:
-- **m4 spot**: $1.43/day
-- **t2d spot**: $0.46/day ← 3x cheaper!
+If you only looked at core pricing, c2d looks 27% more expensive. But for a 4 vCPU + 16GB instance:
+- **e2 spot**: $0.78/day
+- **c2d spot**: $0.99/day ← 1.3x more expensive!
+
+The RAM pricing amplifies the difference.
 
 `gkecc` catches this by calculating total cost, not just core cost.
 
@@ -93,19 +101,22 @@ kind: ComputeClass
 metadata:
   name: cost-optimised-europe-north1
 spec:
-  description: "Cost-optimised AMD64 machines for europe-north1 prioritising cheapest total cost (based on 4vCPU+16GB), interleaving spot and on-demand"
+  description: "Cost-optimised AMD64 for europe-north1"
   whenUnsatisfiable: ScaleUpAnyway
   nodePoolAutoCreation:
     enabled: true
+    nodeLabels:
+      workload: "core"
+      env: "production"
   priorities:
-  - machineFamily: t2d  # $0.46/day (spot, 4vCPU+16GB)
+  - machineFamily: t2d  # $0.46/day (spot, 4vCPU+16GB, cheapest)
     spot: true
-  - machineFamily: m3  # $0.53/day (spot, 4vCPU+16GB)
+  - machineFamily: m3  # $0.53/day (spot, 4vCPU+16GB, 1.1x)
     spot: true
   # ... more spot instances ...
-  - machineFamily: n2d  # $2.62/day (on-demand, 4vCPU+16GB)
+  - machineFamily: n2d  # $2.62/day (on-demand, 4vCPU+16GB, 5.7x)
     spot: false
-  - machineFamily: g2  # $2.72/day (on-demand, 4vCPU+16GB)
+  - machineFamily: g2  # $2.72/day (on-demand, 4vCPU+16GB, 5.9x)
     spot: false
   # ... more on-demand as fallbacks ...
 ```
@@ -114,18 +125,22 @@ spec:
 
 ```
 usage: gkecc [-h] [--max-cost DOLLARS] [--vcpus N] [--ram GB]
-             [--arch {amd64,arm}] [-o FILE]
+             [--arch {amd64,arm}] [--node-label KEY=VALUE] [-o FILE]
              [region]
 
 positional arguments:
-  region              GCP region (default: europe-north1)
+  region                 GCP region (default: europe-north1)
 
 options:
-  --max-cost DOLLARS  Maximum daily cost in USD (default: no limit)
-  --vcpus N           Number of vCPUs for cost calculation (default: 4)
-  --ram GB            RAM in GB for cost calculation (default: 16)
-  --arch {amd64,arm}  CPU architecture to include (default: amd64)
-  -o, --output FILE   Output YAML file (default: stdout)
+  --max-cost DOLLARS     Maximum daily cost in USD (default: no limit)
+  --vcpus N              Number of vCPUs for cost calculation (default: 4)
+  --ram GB               RAM in GB for cost calculation (default: 16)
+  --arch {amd64,arm}     CPU architecture to include (default: amd64)
+  --node-label KEY=VALUE Node labels to apply (can be specified multiple times or comma-separated)
+  --refresh              Refresh pricing cache from API (ignore cached data)
+  --verbose              Show debug logs
+  --format {table,computeclass}  Output format (default: computeclass)
+  -o, --output FILE      Output YAML file (default: stdout)
 ```
 
 ## Why interleaving matters
