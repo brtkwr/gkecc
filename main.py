@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from collections import defaultdict
 from google.cloud import billing_v1
+from google.cloud import compute_v1
 
 
 # ANSI color codes
@@ -36,6 +37,15 @@ def log(msg, color=Colors.GREY, verbose_only=True):
 ARM_FAMILIES = {"t2a", "c4a"}
 # AMD64-based machine families (all others are AMD64)
 AMD64_FAMILIES = None  # None means "not in ARM_FAMILIES"
+
+# Machine family categories
+MACHINE_CATEGORIES = {
+    "general-purpose": {"n1", "n2", "n2d", "n4", "e2", "t2d", "t2a"},
+    "compute-optimised": {"c2", "c2d", "c3", "c3d", "c4", "c4a", "c4d", "h3"},
+    "memory-optimised": {"m1", "m2", "m3", "m4"},
+    "storage-optimised": {"z3"},
+    "gpu": {"a2", "a3", "g1", "g2"},
+}
 
 
 def get_cache_dir():
@@ -265,6 +275,77 @@ def parse_pricing_data(region="europe-north1", arch="amd64", use_cache=True):
     return pricing
 
 
+def validate_machine_compatibility(project, region, vcpus, ram_gb, families):
+    """
+    Validate which machine families support the requested vCPU/RAM combination.
+    Returns a set of compatible family names.
+    Raises an exception if validation fails.
+    """
+    log(f"Validating machine type compatibility for {vcpus} vCPU + {ram_gb}GB RAM...", Colors.BLUE)
+
+    # Extract zone from region (use first zone in region)
+    zone = f"{region}-a"
+
+    client = compute_v1.MachineTypesClient()
+    request = compute_v1.ListMachineTypesRequest(
+        project=project,
+        zone=zone,
+    )
+
+    compatible_families = set()
+
+    # Get all machine types for this zone
+    machine_types = client.list(request=request)
+
+    for machine_type in machine_types:
+        # Extract family from machine type name (e.g., "n2-standard-4" -> "n2")
+        type_name = machine_type.name.lower()
+        family = None
+
+        # Match against known families
+        for fam in families:
+            if type_name.startswith(f"{fam}-"):
+                family = fam
+                break
+
+        if not family:
+            continue
+
+        # Check if this machine type matches our requirements
+        # Account for slight variations in RAM (GCP uses 1024-based GB)
+        ram_mb = ram_gb * 1024
+        tolerance = 512  # 512MB tolerance
+
+        if (machine_type.guest_cpus == vcpus and
+            abs(machine_type.memory_mb - ram_mb) <= tolerance):
+            compatible_families.add(family)
+            log(f"  ✓ {family}: {machine_type.name} ({machine_type.guest_cpus} vCPU, {machine_type.memory_mb}MB)", Colors.GREEN)
+
+    # Check for custom machine type support
+    # Most families support custom configurations within certain ratios
+    custom_families = set()
+    for family in families:
+        if family not in compatible_families:
+            # Check if family supports custom machine types
+            # Custom machines allow flexible vCPU/RAM within limits
+            if family in {"n1", "n2", "n2d", "e2", "m1", "m2", "m3"}:
+                # These families support custom machine types
+                # Check if ratio is within acceptable range
+                gb_per_vcpu = ram_gb / vcpus
+                # Most families support 0.9GB to 6.5GB per vCPU
+                if 0.9 <= gb_per_vcpu <= 6.5:
+                    custom_families.add(family)
+                    log(f"  ✓ {family}: custom machine type ({vcpus} vCPU, {ram_gb}GB, {gb_per_vcpu:.1f}GB/vCPU)", Colors.GREEN)
+
+    compatible_families.update(custom_families)
+
+    incompatible = set(families) - compatible_families
+    if incompatible:
+        log(f"  ✗ Incompatible families (will be skipped by GKE): {', '.join(sorted(incompatible))}", Colors.YELLOW)
+
+    return compatible_families
+
+
 def calculate_costs(pricing, vcpus, ram_gb):
     """Calculate total costs for all machine families"""
     all_options = []
@@ -306,6 +387,24 @@ def filter_by_max_cost(options, max_daily_cost):
     return [opt for opt in options if opt["total"] * 24 <= max_daily_cost]
 
 
+def filter_by_category(options, categories):
+    """Filter options by machine family categories (can be multiple)"""
+    if not categories:
+        return options
+
+    # Combine allowed families from all specified categories
+    allowed_families = set()
+    if isinstance(categories, str):
+        # Single category (for backwards compatibility)
+        allowed_families = MACHINE_CATEGORIES.get(categories, set())
+    else:
+        # Multiple categories
+        for category in categories:
+            allowed_families.update(MACHINE_CATEGORIES.get(category, set()))
+
+    return [opt for opt in options if opt["family"] in allowed_families]
+
+
 def format_comparison(daily_cost, cheapest_daily):
     """Format cost comparison string"""
     if daily_cost == cheapest_daily:
@@ -315,17 +414,46 @@ def format_comparison(daily_cost, cheapest_daily):
 
 
 def generate_yaml_output(
-    region, arch, max_daily_cost, node_labels, sorted_options, vcpus, ram_gb
+    region, arch, max_daily_cost, node_labels, sorted_options, vcpus, ram_gb, categories=None, name=None
 ):
     """Generate YAML ComputeClass specification"""
     lines = []
     lines.append("apiVersion: cloud.google.com/v1\n")
     lines.append("kind: ComputeClass\n")
     lines.append("metadata:\n")
-    lines.append(f"  name: cost-optimised-{region}\n")
+
+    # Generate name with categories if not overridden
+    if name:
+        # Use user-provided name
+        pass
+    elif categories:
+        if isinstance(categories, str):
+            categories = [categories]
+        # Sort for consistent naming and use abbreviations for shorter names
+        category_abbrev = {
+            "general-purpose": "gp",
+            "compute-optimised": "co",
+            "memory-optimised": "mo",
+            "storage-optimised": "so",
+            "gpu": "gpu",
+        }
+        sorted_cats = sorted(categories)
+        abbreviated = [category_abbrev.get(cat, cat) for cat in sorted_cats]
+        category_part = "-".join(abbreviated)
+        name = f"{category_part}-{region}"
+    else:
+        name = region
+    lines.append(f"  name: {name}\n")
+
     lines.append("spec:\n")
     arch_label = arch.upper()
-    description = f"Cost-optimised {arch_label} for {region}"
+    description = f"{arch_label}"
+    if categories:
+        if isinstance(categories, str):
+            categories = [categories]
+        sorted_cats = sorted(categories)
+        description += f" {'+'.join(sorted_cats)}"
+    description += f" for {region}"
     if max_daily_cost:
         description += f", max ${max_daily_cost}/day"
     lines.append(f'  description: "{description}"\n')
@@ -346,13 +474,17 @@ def generate_yaml_output(
         type_label = "spot" if opt["is_spot"] else "on-demand"
         daily_cost = opt["total"] * 24
 
+        # Generate example machine type name
+        ram_mb = ram_gb * 1024
+        machine_type = f"{opt['family']}-custom-{vcpus}-{ram_mb}"
+
         if i == 0:
             comment = (
-                f"${daily_cost:.2f}/day ({type_label}, {vcpus}vCPU+{ram_gb}GB, cheapest)"
+                f"${daily_cost:.2f}/day ({machine_type}, {type_label}, cheapest)"
             )
         else:
             multiplier = daily_cost / cheapest_daily
-            comment = f"${daily_cost:.2f}/day ({type_label}, {vcpus}vCPU+{ram_gb}GB, {multiplier:.1f}x)"
+            comment = f"${daily_cost:.2f}/day ({machine_type}, {type_label}, {multiplier:.1f}x)"
 
         lines.append(f"  - machineFamily: {opt['family']}  # {comment}\n")
         lines.append(f"    spot: {spot_str}\n")
@@ -405,6 +537,10 @@ def generate_compute_class(
     arch="amd64",
     use_cache=True,
     node_labels=None,
+    category=None,
+    name=None,
+    validate=False,
+    project=None,
 ):
     """Generate compute class spec from API pricing"""
 
@@ -416,11 +552,30 @@ def generate_compute_class(
 
     log(f"Found {len(pricing)} machine families with complete pricing", Colors.GREEN)
 
+    # Validate machine type compatibility if requested
+    if validate:
+        compatible_families = validate_machine_compatibility(project, region, vcpus, ram_gb, set(pricing.keys()))
+        # Filter pricing to only compatible families
+        pricing = {family: prices for family, prices in pricing.items() if family in compatible_families}
+        if not pricing:
+            log("No compatible machine families found for the specified vCPU/RAM combination!", Colors.YELLOW)
+            return
+        log(f"Using {len(pricing)} compatible machine families", Colors.GREEN)
+
     # Calculate total costs and create entries for both spot and on-demand
     all_options = calculate_costs(pricing, vcpus, ram_gb)
 
     # Sort by total cost (cheapest first)
     all_sorted = sorted(all_options, key=lambda x: x["total"])
+
+    # Filter by category if specified
+    all_sorted = filter_by_category(all_sorted, category)
+    if category:
+        if isinstance(category, list):
+            cat_str = ", ".join(category)
+            log(f"Filtered to {cat_str} instances", Colors.YELLOW)
+        else:
+            log(f"Filtered to {category} instances", Colors.YELLOW)
 
     # Filter by max daily cost if specified
     all_sorted = filter_by_max_cost(all_sorted, max_daily_cost)
@@ -458,7 +613,7 @@ def generate_compute_class(
 
     # Generate YAML
     yaml_output = generate_yaml_output(
-        region, arch, max_daily_cost, node_labels, all_sorted, vcpus, ram_gb
+        region, arch, max_daily_cost, node_labels, all_sorted, vcpus, ram_gb, category, name
     )
 
     output = sys.stdout if output_file is None else open(output_file, "w")
@@ -500,10 +655,17 @@ Notes:
     )
 
     parser.add_argument(
-        "region",
-        nargs="?",
+        "--region",
+        type=str,
         default="europe-north1",
         help="GCP region (default: europe-north1)",
+    )
+
+    parser.add_argument(
+        "--name",
+        type=str,
+        default=None,
+        help="Override ComputeClass name (default: auto-generated from categories and region)",
     )
 
     parser.add_argument(
@@ -537,10 +699,55 @@ Notes:
         help="CPU architecture to include (default: amd64)",
     )
 
+    # Category selection - can specify multiple
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Include all machine categories",
+    )
+    parser.add_argument(
+        "--general-purpose",
+        action="store_true",
+        help="Include general-purpose machines (n1, n2, n2d, n4, e2, t2d, t2a) [default if no categories specified]",
+    )
+    parser.add_argument(
+        "--compute-optimised",
+        action="store_true",
+        help="Include compute-optimised machines (c2, c2d, c3, c3d, c4, c4a, c4d, h3)",
+    )
+    parser.add_argument(
+        "--memory-optimised",
+        action="store_true",
+        help="Include memory-optimised machines (m1, m2, m3, m4)",
+    )
+    parser.add_argument(
+        "--storage-optimised",
+        action="store_true",
+        help="Include storage-optimised machines (z3)",
+    )
+    parser.add_argument(
+        "--gpu",
+        action="store_true",
+        help="Include GPU machines (a2, a3, g1, g2)",
+    )
+
     parser.add_argument(
         "--refresh",
         action="store_true",
         help="Refresh pricing cache from API (ignore cached data)",
+    )
+
+    parser.add_argument(
+        "--skip-validation",
+        action="store_true",
+        help="Skip validation of machine families (validation is enabled by default)",
+    )
+
+    parser.add_argument(
+        "--project",
+        type=str,
+        default=None,
+        help="GCP project ID (required for validation, defaults to GOOGLE_CLOUD_PROJECT or GCLOUD_PROJECT env var)",
     )
 
     parser.add_argument(
@@ -578,8 +785,42 @@ Notes:
     FORMAT = args.format
 
     try:
+        # Get project from args or environment
+        import os
+        project = args.project or os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("GCLOUD_PROJECT")
+
+        # Validation is enabled by default unless --skip-validation is specified
+        validate = not args.skip_validation
+
+        # If validation is enabled, project is required
+        if validate and not project:
+            print("Error: Validation requires a GCP project ID. Specify --project or set GOOGLE_CLOUD_PROJECT environment variable, or use --skip-validation to skip validation.")
+            exit(1)
+
         # Parse node labels
         node_labels = parse_node_labels(args.node_label)
+
+        # Collect selected categories
+        categories = []
+
+        # If --all is specified, include all categories
+        if args.all:
+            categories = ["general-purpose", "compute-optimised", "memory-optimised", "storage-optimised", "gpu"]
+        else:
+            if args.general_purpose:
+                categories.append("general-purpose")
+            if args.compute_optimised:
+                categories.append("compute-optimised")
+            if args.memory_optimised:
+                categories.append("memory-optimised")
+            if args.storage_optimised:
+                categories.append("storage-optimised")
+            if args.gpu:
+                categories.append("gpu")
+
+            # Default to general-purpose if no categories specified
+            if not categories:
+                categories = ["general-purpose"]
 
         generate_compute_class(
             region=args.region,
@@ -590,6 +831,10 @@ Notes:
             arch=args.arch,
             use_cache=not args.refresh,
             node_labels=node_labels if node_labels else None,
+            category=categories,
+            name=args.name,
+            validate=validate,
+            project=project,
         )
     except Exception as e:
         print(f"Error: {e}")

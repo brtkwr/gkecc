@@ -430,3 +430,142 @@ class TestGenerateComputeClassIntegration:
             ram_gb=16,
             max_daily_cost=0.1,  # Impossibly low
         )
+
+    def test_generate_compute_class_with_validation(self, mocker, tmp_path):
+        """Test with validation enabled"""
+        mock_pricing = {
+            "n2d": {
+                "spot_core": 0.01,
+                "spot_ram": 0.001,
+                "ondemand_core": 0.02,
+                "ondemand_ram": 0.002,
+            },
+            "t2d": {
+                "spot_core": 0.005,
+                "spot_ram": 0.0005,
+                "ondemand_core": 0.01,
+                "ondemand_ram": 0.001,
+            },
+        }
+
+        mocker.patch("main.parse_pricing_data", return_value=mock_pricing)
+        mocker.patch("main.validate_machine_compatibility", return_value={"t2d"})
+
+        output_file = tmp_path / "output.yaml"
+        generate_compute_class(
+            region="us-central1",
+            output_file=str(output_file),
+            vcpus=4,
+            ram_gb=16,
+            validate=True,
+            project="test-project",
+        )
+
+        content = output_file.read_text()
+        # Should only include t2d (validated family)
+        assert "machineFamily: t2d" in content
+        assert "machineFamily: n2d" not in content
+
+    def test_generate_compute_class_validation_no_compatible(self, mocker):
+        """Test with validation returning no compatible families"""
+        mock_pricing = {
+            "n2d": {
+                "spot_core": 0.01,
+                "spot_ram": 0.001,
+                "ondemand_core": 0.02,
+                "ondemand_ram": 0.002,
+            },
+        }
+
+        mocker.patch("main.parse_pricing_data", return_value=mock_pricing)
+        mocker.patch("main.validate_machine_compatibility", return_value=set())
+
+        # Should return early with no output
+        generate_compute_class(
+            region="us-central1",
+            vcpus=4,
+            ram_gb=16,
+            validate=True,
+            project="test-project",
+        )
+
+    def test_generate_compute_class_with_category_list(self, mocker, tmp_path):
+        """Test with category as a list"""
+        mock_pricing = {
+            "t2d": {
+                "spot_core": 0.005,
+                "spot_ram": 0.0005,
+                "ondemand_core": 0.01,
+                "ondemand_ram": 0.001,
+            },
+            "c2d": {
+                "spot_core": 0.01,
+                "spot_ram": 0.001,
+                "ondemand_core": 0.02,
+                "ondemand_ram": 0.002,
+            },
+        }
+
+        mocker.patch("main.parse_pricing_data", return_value=mock_pricing)
+
+        output_file = tmp_path / "output.yaml"
+        generate_compute_class(
+            region="us-central1",
+            output_file=str(output_file),
+            vcpus=4,
+            ram_gb=16,
+            category=["general-purpose", "compute-optimised"],
+        )
+
+        content = output_file.read_text()
+        # Both families should be included
+        assert "machineFamily: t2d" in content
+        assert "machineFamily: c2d" in content
+
+    def test_generate_compute_class_with_category_string(self, mocker, tmp_path):
+        """Test with category as a string"""
+        mock_pricing = {
+            "t2d": {
+                "spot_core": 0.005,
+                "spot_ram": 0.0005,
+                "ondemand_core": 0.01,
+                "ondemand_ram": 0.001,
+            },
+        }
+
+        mocker.patch("main.parse_pricing_data", return_value=mock_pricing)
+
+        output_file = tmp_path / "output.yaml"
+        generate_compute_class(
+            region="us-central1",
+            output_file=str(output_file),
+            vcpus=4,
+            ram_gb=16,
+            category="general-purpose",
+        )
+
+        content = output_file.read_text()
+        assert "machineFamily: t2d" in content
+
+    def test_generate_compute_class_stdout(self, mocker, capsys):
+        """Test output to stdout"""
+        mock_pricing = {
+            "t2d": {
+                "spot_core": 0.005,
+                "spot_ram": 0.0005,
+                "ondemand_core": 0.01,
+                "ondemand_ram": 0.001,
+            },
+        }
+
+        mocker.patch("main.parse_pricing_data", return_value=mock_pricing)
+
+        generate_compute_class(
+            region="us-central1",
+            output_file=None,  # Output to stdout
+            vcpus=4,
+            ram_gb=16,
+        )
+
+        captured = capsys.readouterr()
+        assert "machineFamily: t2d" in captured.out

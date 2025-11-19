@@ -4,6 +4,7 @@ from main import (
     extract_machine_family,
     calculate_costs,
     filter_by_max_cost,
+    filter_by_category,
     format_comparison,
     generate_yaml_output,
     format_table_output,
@@ -145,6 +146,81 @@ class TestFormatComparison:
         assert format_comparison(1.54, 1.0) == "(1.5x)"
 
 
+class TestFilterByCategory:
+    """Tests for filter_by_category function"""
+
+    def test_filter_no_category(self):
+        options = [
+            {"family": "t2d", "total": 0.1},
+            {"family": "c2d", "total": 0.2},
+            {"family": "m3", "total": 0.3},
+        ]
+        result = filter_by_category(options, None)
+        assert len(result) == 3
+
+    def test_filter_general_purpose(self):
+        options = [
+            {"family": "t2d", "total": 0.1},
+            {"family": "c2d", "total": 0.2},
+            {"family": "m3", "total": 0.3},
+        ]
+        result = filter_by_category(options, "general-purpose")
+        assert len(result) == 1
+        assert result[0]["family"] == "t2d"
+
+    def test_filter_compute_optimised(self):
+        options = [
+            {"family": "t2d", "total": 0.1},
+            {"family": "c2d", "total": 0.2},
+            {"family": "c3", "total": 0.25},
+            {"family": "m3", "total": 0.3},
+        ]
+        result = filter_by_category(options, "compute-optimised")
+        assert len(result) == 2
+        families = {opt["family"] for opt in result}
+        assert families == {"c2d", "c3"}
+
+    def test_filter_memory_optimised(self):
+        options = [
+            {"family": "t2d", "total": 0.1},
+            {"family": "m3", "total": 0.3},
+            {"family": "m4", "total": 0.4},
+        ]
+        result = filter_by_category(options, "memory-optimised")
+        assert len(result) == 2
+        families = {opt["family"] for opt in result}
+        assert families == {"m3", "m4"}
+
+    def test_filter_gpu(self):
+        options = [
+            {"family": "t2d", "total": 0.1},
+            {"family": "a2", "total": 0.5},
+            {"family": "g2", "total": 0.6},
+        ]
+        result = filter_by_category(options, "gpu")
+        assert len(result) == 2
+        families = {opt["family"] for opt in result}
+        assert families == {"a2", "g2"}
+
+    def test_filter_invalid_category(self):
+        options = [
+            {"family": "t2d", "total": 0.1},
+        ]
+        result = filter_by_category(options, "invalid-category")
+        assert len(result) == 0
+
+    def test_filter_multiple_categories(self):
+        options = [
+            {"family": "t2d", "total": 0.1},
+            {"family": "c2d", "total": 0.2},
+            {"family": "m3", "total": 0.3},
+        ]
+        result = filter_by_category(options, ["general-purpose", "memory-optimised"])
+        assert len(result) == 2
+        families = {opt["family"] for opt in result}
+        assert families == {"t2d", "m3"}
+
+
 class TestParseNodeLabels:
     """Tests for parse_node_labels function"""
 
@@ -208,8 +284,8 @@ class TestGenerateYamlOutput:
 
         assert "apiVersion: cloud.google.com/v1" in result
         assert "kind: ComputeClass" in result
-        assert "name: cost-optimised-us-central1" in result
-        assert "Cost-optimised AMD64 for us-central1" in result
+        assert "name: us-central1" in result
+        assert "AMD64 for us-central1" in result
         assert "machineFamily: t2d" in result
         assert "spot: true" in result
         assert "machineFamily: n2d" in result
@@ -258,7 +334,7 @@ class TestGenerateYamlOutput:
             ram_gb=16,
         )
 
-        assert "Cost-optimised ARM for us-central1" in result
+        assert "ARM for us-central1" in result
 
     def test_yaml_cost_comments(self):
         options = [
@@ -277,6 +353,57 @@ class TestGenerateYamlOutput:
 
         assert "cheapest" in result
         assert "2.0x" in result
+
+    def test_yaml_with_custom_name(self):
+        options = [{"family": "t2d", "is_spot": True, "total": 0.02}]
+        result = generate_yaml_output(
+            region="us-central1",
+            arch="amd64",
+            max_daily_cost=None,
+            node_labels=None,
+            sorted_options=options,
+            vcpus=4,
+            ram_gb=16,
+            name="custom-compute-class",
+        )
+
+        assert "name: custom-compute-class" in result
+
+    def test_yaml_with_categories_list(self):
+        options = [{"family": "t2d", "is_spot": True, "total": 0.02}]
+        result = generate_yaml_output(
+            region="us-central1",
+            arch="amd64",
+            max_daily_cost=None,
+            node_labels=None,
+            sorted_options=options,
+            vcpus=4,
+            ram_gb=16,
+            categories=["compute-optimised", "general-purpose"],
+        )
+
+        # Should have abbreviated name
+        assert "name: co-gp-us-central1" in result
+        # Should have full names in description
+        assert "compute-optimised+general-purpose" in result
+
+    def test_yaml_with_categories_string(self):
+        options = [{"family": "t2d", "is_spot": True, "total": 0.02}]
+        result = generate_yaml_output(
+            region="us-central1",
+            arch="amd64",
+            max_daily_cost=None,
+            node_labels=None,
+            sorted_options=options,
+            vcpus=4,
+            ram_gb=16,
+            categories="memory-optimised",
+        )
+
+        # Should have abbreviated name
+        assert "name: mo-us-central1" in result
+        # Should have full name in description
+        assert "memory-optimised" in result
 
 
 class TestFormatTableOutput:

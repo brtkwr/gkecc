@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "google-cloud-billing>=1.17.0",
+    "google-cloud-compute>=1.20.0",
     "pyyaml>=6.0.3",
 ]
 
@@ -25,6 +26,7 @@ package = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+addopts = "--cov --cov-report=term-missing"
 
 [tool.coverage.run]
 source = ["."]
